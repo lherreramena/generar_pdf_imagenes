@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -x
+set +x
 set -e
 
 show_help() {
@@ -26,12 +26,13 @@ banner() {
 start_proc() {
   case $1 in
     api_web)
-      PY_SRC=${ROOT_PATH}/Python/api_rest_service/api_rest_cors_server.py
+      PY_SRC=${ROOT_PATH}/Python/api_rest_service/api_rest_server.py
       ARGS="--api_web --dst=api_web_output"
       ;;
     rest_api)
-      PY_SRC=${ROOT_PATH}/Python/api_rest_service/api_rest_cors_server.py
-      ARGS="--dst=api_rest_output -v"
+      PY_SRC=${ROOT_PATH}/Python/api_rest_service/api_rest_server.py
+      #LIB_PATH=$(search_library libcrypto.so.3)
+      ARGS="-p 4065"
       ;;
     web)
       WORKING_PATH=${ROOT_PATH}/Flask/templates
@@ -40,10 +41,17 @@ start_proc() {
       ARGS=5001
   esac
 
-  NOHUP=$2
-
+  shift
+  if [ "$1" == "nohup" ]; then
+    NOHUP=$1
+    shift
+  fi
+  
   create_log_path
-  ${NOHUP} ${PYTHON_BIN} ${PY_SRC} ${ARGS} > ${LOG_FILE} 2>&1 &
+  if [ ! -z "$LIB_PATH" ]; then
+    export LD_LIBRARY_PATH=$LIB_PATH:$LD_LIBRARY_PATH
+  fi
+  ${NOHUP} ${PYTHON_BIN} ${PY_SRC} ${ARGS} $* > ${LOG_FILE} 2>&1 &
   banner
 }
 
@@ -53,7 +61,7 @@ stop_proc() {
       ARGS=api_web
       ;;
     rest_api)
-      ARGS=api_rest_cors_server
+      ARGS=api_rest_server
       EXCLUDE=api_web
       ;;
     web)
@@ -85,7 +93,7 @@ get_pidof() {
       ARGS=api_web
       ;;
     rest_api)
-      ARGS=api_rest_cors_server
+      ARGS=api_rest_server
       EXCLUDE=api_web
       ;;
     web)
@@ -115,7 +123,15 @@ status_proc() {
   fi
 }
 
-
+search_library() {
+  set +e
+  LIB_FILEPATH=$(find / -name $1 -print -quit 2>/dev/null)
+  set -e
+  if [ ! -z "$LIB_FILEPATH" ]; then
+    LIB_PATH=$(dirname "$(readlink -f "$LIB_FILEPATH")")
+  fi
+  echo $LIB_PATH
+}
 
 
 # --- main -----
@@ -124,29 +140,37 @@ TARGET=Debug
 
 ROOT_PATH=$(dirname "$(readlink -f "$BASH_SOURCE")")
 SPD_ROOT=$(dirname "$(readlink -f "$ROOT_PATH")")
-#PARAMS="--ticks_to_msg 10 --timer_tick 100 --keep_alive_msg 3000  --config_file ./data_config/config.json"
 
-if [ -z "$PYTHON_ENV_ROOT_" ]; then
-  PYTHON_ENV_ROOT_=$(find $ROOT_PATH -name pythonEnv)
+BASEPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+if [ ! -z "$LIB_PATH" ]; then
+  LIB_PATH=${BASEPATH}/Python/api_rest_service:$LIB_PATH
+else
+  LIB_PATH=${BASEPATH}/Python/api_rest_service
 fi
 
-if [ ! -z "$PYTHON_ENV_ROOT_" ]; then
-	source $PYTHON_ENV_ROOT_/bin/activate
+#export LD_LIBRARY_PATH=$LIB_PATH:$LD_LIBRARY_PATH
+
+if [ -z "$PYTHON_ENV_ROOT" ]; then
+  PYTHON_ENV_ROOT=$(find $SPD_ROOT -name pythonEnv)
+fi
+
+if [ ! -z "$PYTHON_ENV_ROOT" ]; then
+	source $PYTHON_ENV_ROOT/bin/activate
 	PYTHON_BIN=python
 else
   set +e
 	PYTHON_BIN=$(which python)
   set -e
 	if [ -z "$PYTHON_BIN" ]; then
-		echo -e "Python not found. Please set PYTHON_ENV_ROOT_ env. Exiting with error."
+		echo -e "Python not found. Please set PYTHON_ENV_ROOT env. Exiting with error."
 		exit 1
 	fi
 fi
 
 if [ -z "$PYTHON_BIN" ]; then
-  echo -e "Python not found. Please set PYTHON_ENV_ROOT_ env. Exiting with error."
+  echo -e "Python not found. Please set PYTHON_ENV_ROOT env. Exiting with error."
   exit 1
 fi
 
 $PYTHON_BIN $*
-
